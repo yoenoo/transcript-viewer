@@ -647,7 +647,7 @@
     <div class="tgt-card" class:flag={hls.some((h) => !h.debug)}>
       <span class="lbl">turn {no}</span>
       {#if t.reasoning}<div class="reason reason-tgt"><span class="lbl">reasoning</span> <MarkdownText text={t.reasoning} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
-      {#if t.text}<div class="ttext"><span class="lbl">message</span><HighlightedText text={t.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
+      {#if t.text}<div class="ttext"><span class="lbl">message</span><MarkdownText text={t.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
       {#each t.calls as c, ci (ci)}
         {@const args = c.args}
         {@const resultText = cleanResult(c.result)}
@@ -1069,9 +1069,7 @@
   .tgt-card { position: relative; background: var(--tgt-bg); border: 1px solid var(--tgt-line); border-left: 5px solid var(--tgt); border-radius: 0 7px 7px 0; padding: 11px 14px 12px; font-size: 14px; line-height: 1.5; }
   .tgt-card.flag { box-shadow: 0 0 0 1px var(--hl); }
   .tgt-card > .lbl { color: var(--tgt); display: block; margin-bottom: 6px; }
-  .ttext :global(p) { margin: 0.4em 0; }
-  .ttext :global(ol), .ttext :global(ul) { margin: 0.4em 0; padding-left: 1.3em; }
-  .ttext { white-space: pre-wrap; word-break: break-word; line-height: 1.55; margin: 2px 0 6px; }
+  .ttext { word-break: break-word; line-height: 1.55; margin: 2px 0 6px; }
   .ttext > .lbl { display: block; margin-bottom: 2px; color: var(--tgt); }
   .tcall { font-family: var(--mono); font-size: 11.6px; line-height: 1.5; background: var(--surface); border: 1px solid var(--tgt-line); border-radius: 3px; padding: 6px 9px; margin: 7px 0 0; }
   .tcall-fn { margin-bottom: 5px; }
