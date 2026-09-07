@@ -178,19 +178,6 @@
     });
   }
 
-  // Full, untruncated tool calls recovered by transcript.py into target_activity,
-  // keyed by call id so we can swap them in for the truncated flattened content.
-  const fullCallMap = $derived.by(() => {
-    const m = new Map<string, { arguments: Record<string, unknown>; result: string | null; function: string }>();
-    if (!transcript) return m;
-    for (const e of transcript.events) {
-      if (e.role !== 'tool') continue;
-      for (const t of (e as ToolEvent).target_activity || []) {
-        for (const c of t.tool_calls || []) if (c.id) m.set(c.id, c);
-      }
-    }
-    return m;
-  });
   function parseTargetContent(content: string): { turns: TTurn[]; finalText: string } {
     // Strip the "Target response (N model calls):" header, then split the tool
     // activity (inside <target_activity>…</target_activity>) from the model's
@@ -254,30 +241,72 @@
     return typeof v === 'string' ? v : JSON.stringify(v);
   }
 
-  // Group a target reply's turns: show turns that carry judge evidence (plus the
-  // first and last for context); fold consecutive routine turns behind a summary.
+  // Unified target-turn model. Prefer the structured `target_activity` — it is
+  // complete (reasoning + text + tool calls with full args/results) and is
+  // populated for all modern scaffolds, so rendering from it gives coherent
+  // formatting across Claude Code / Codex / Gemini CLI. The flattened-content
+  // parse is a lossy legacy fallback (it drops reasoning-only and text-only
+  // turns), used only for old transcripts that lack target_activity.
+  type NCall = { fn: string; args: Record<string, unknown> | null; argStr: string; result: string };
+  type NTurn = { no: string; reasoning: string; text: string; calls: NCall[] };
+
+  function buildTurns(ev: Event): NTurn[] {
+    const ta = (ev as ToolEvent).target_activity || [];
+    if (ta.length) {
+      return ta
+        .map((t, i) => ({
+          no: String(i + 1),
+          reasoning: (t.reasoning || '').trim(),
+          text: (t.text || '').trim(),
+          calls: (t.tool_calls || []).map((c) => ({
+            fn: c.function || 'call',
+            args: c.arguments && typeof c.arguments === 'object' ? (c.arguments as Record<string, unknown>) : null,
+            argStr: '',
+            result: c.result == null ? '' : String(c.result),
+          })),
+        }))
+        .filter((t) => t.reasoning || t.text || t.calls.length);
+    }
+    const parsed = parseTargetContent(ev.content || '');
+    const turns: NTurn[] = parsed.turns.map((t) => ({
+      no: t.no,
+      reasoning: '',
+      text: t.preamble,
+      calls: t.calls.map((c) => {
+        const pc = parseCall(c.head);
+        return { fn: pc.fn || fnOf(c.head) || 'call', args: pc.args, argStr: pc.argStr, result: c.result };
+      }),
+    }));
+    if (parsed.finalText) turns.push({ no: '', reasoning: '', text: parsed.finalText, calls: [] });
+    return turns;
+  }
+
+  function turnTexts(t: NTurn): string[] {
+    return [t.reasoning, t.text, ...t.calls.flatMap((c) => [
+      c.args && typeof c.args.command === 'string' ? c.args.command : c.argStr,
+      c.result,
+    ])].filter(Boolean) as string[];
+  }
+
+  // Group a target reply's turns: show turns that carry reasoning or judge
+  // evidence (plus first and last for context); fold consecutive routine turns.
   type TurnGroup =
-    | { fold: false; t: TTurn; no: string; hls: HL[] }
-    | { fold: true; turns: { t: TTurn; no: string }[] };
-  function groupTurns(id: string, content: string): { groups: TurnGroup[]; finalText: string; turnCount: number } {
-    const parsed = parseTargetContent(content);
-    const N = parsed.turns.length;
+    | { fold: false; t: NTurn; no: string; hls: HL[] }
+    | { fold: true; turns: { t: NTurn; no: string }[] };
+  function groupTurns(ev: Event): { groups: TurnGroup[]; turnCount: number } {
+    const turns = buildTurns(ev);
+    const N = turns.length;
     const groups: TurnGroup[] = [];
-    let fold: { t: TTurn; no: string }[] = [];
+    let fold: { t: NTurn; no: string }[] = [];
     const flush = () => { if (fold.length) { groups.push({ fold: true, turns: fold }); fold = []; } };
-    parsed.turns.forEach((t, i) => {
-      const texts = [t.preamble, ...t.calls.flatMap((c) => [c.head, c.result])];
-      const hls = hlsInText(id, ...texts);
-      const important = hls.length > 0 || i === 0 || i === N - 1;
-      if (important) {
-        flush();
-        groups.push({ fold: false, t, no: t.no || String(i + 1), hls });
-      } else {
-        fold.push({ t, no: t.no || String(i + 1) });
-      }
+    turns.forEach((t, i) => {
+      const hls = hlsInText(ev.id, ...turnTexts(t));
+      const important = hls.length > 0 || !!t.reasoning || i === 0 || i === N - 1;
+      if (important) { flush(); groups.push({ fold: false, t, no: t.no || String(i + 1), hls }); }
+      else fold.push({ t, no: t.no || String(i + 1) });
     });
     flush();
-    return { groups, finalText: parsed.finalText, turnCount: N };
+    return { groups, turnCount: N };
   }
 
   function debugHl(h: Highlight): boolean {
@@ -614,17 +643,16 @@
     </button>
   {/snippet}
 
-  {#snippet targetCard(id: string, t: TTurn, no: string, hls: HL[])}
+  {#snippet targetCard(id: string, t: NTurn, no: string, hls: HL[])}
     <div class="tgt-card" class:flag={hls.some((h) => !h.debug)}>
       <span class="lbl">turn {no}</span>
-      {#if t.preamble}<div class="ttext"><HighlightedText text={t.preamble} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
+      {#if t.reasoning}<div class="reason reason-tgt"><span class="lbl">reasoning</span> <MarkdownText text={t.reasoning} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
+      {#if t.text}<div class="ttext"><span class="lbl">message</span><HighlightedText text={t.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
       {#each t.calls as c, ci (ci)}
-        {@const pc = parseCall(c.head)}
-        {@const full = c.id ? fullCallMap.get(c.id) : undefined}
-        {@const args = full ? full.arguments : pc.args}
-        {@const resultText = cleanResult(full ? (full.result || '') : c.result)}
+        {@const args = c.args}
+        {@const resultText = cleanResult(c.result)}
         <div class="tcall">
-          <div class="tcall-fn"><span class="fn">{full?.function || pc.fn || 'call'}</span></div>
+          <div class="tcall-fn"><span class="fn">{c.fn || 'call'}</span></div>
           {#if args && typeof args.command === 'string'}
             {@const cq = cmdQuotes(id)}
             {@const cmd = stripTrunc(args.command)}
@@ -637,8 +665,8 @@
                 <div class="tcall-arg"><span class="argk">{k}</span><span class="argv"><HighlightedText text={av.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} />{#if av.more}<span class="trunc">⋯ {av.more.toLocaleString()} more truncated</span>{/if}</span></div>
               {/each}
             </div>
-          {:else if pc.argStr}
-            <div class="tcall-cmd"><HighlightedText text={stripTrunc(pc.argStr).text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>
+          {:else if c.argStr}
+            <div class="tcall-cmd"><HighlightedText text={stripTrunc(c.argStr).text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>
           {/if}
           {#if resultText}
             {@const res = stripTrunc(resultText)}
@@ -710,26 +738,30 @@
           {@const hls = highlightsByEvent.get(ev.id) || []}
           {#if isTargetEvent(ev)}
             <!-- target activity, right lane (each card paired with its judge note to the right) -->
-            {@const grouped = groupTurns(ev.id, ev.content || '')}
-            {@const finalHls = grouped.finalText ? hlsInText(ev.id, grouped.finalText) : []}
-            {@const matchedN = new Set([...grouped.groups.flatMap((g) => g.fold ? [] : g.hls.map((h) => h.n)), ...finalHls.map((h) => h.n)])}
+            {@const grouped = groupTurns(ev)}
+            {@const matchedN = new Set(grouped.groups.flatMap((g) => g.fold ? [] : g.hls.map((h) => h.n)))}
             {@const unmatched = hls.filter((h) => !matchedN.has(h.n))}
             <div class="lt lt-wide">
-              {#if grouped.groups.length || grouped.finalText}
+              {#if grouped.groups.length}
                 <div class="tlabel lbl">{#if grouped.turnCount}{grouped.turnCount} turn{grouped.turnCount === 1 ? '' : 's'}{:else}reply{/if}</div>
                 {#if unmatched.length}
                   <div class="turn-row"><div class="turn-main"></div><div class="turn-anns">{#each unmatched as h (h.n)}{@render annBtn(h)}{/each}</div></div>
                 {/if}
                 {#each grouped.groups as g, gi (gi)}
                   {#if g.fold}
-                    <details class="disc turnfold" open={mode === 'full'}>
-                      <summary>⋯ {g.turns.length} more turn{g.turns.length === 1 ? '' : 's'} ⋯</summary>
-                      <div class="turnfold-body">
-                        {#each g.turns as ft, fi (fi)}
-                          {@render targetCard(ev.id, ft.t, ft.no, [])}
-                        {/each}
+                    <div class="turn-row">
+                      <div class="turn-main">
+                        <details class="disc turnfold" open={mode === 'full'}>
+                          <summary>⋯ {g.turns.length} more turn{g.turns.length === 1 ? '' : 's'} ⋯</summary>
+                          <div class="turnfold-body">
+                            {#each g.turns as ft, fi (fi)}
+                              {@render targetCard(ev.id, ft.t, ft.no, [])}
+                            {/each}
+                          </div>
+                        </details>
                       </div>
-                    </details>
+                      <div class="turn-anns"></div>
+                    </div>
                   {:else}
                     <div class="turn-row">
                       <div class="turn-main">{@render targetCard(ev.id, g.t, g.no, g.hls)}</div>
@@ -737,19 +769,8 @@
                     </div>
                   {/if}
                 {/each}
-                {#if grouped.finalText}
-                  <div class="turn-row">
-                    <div class="turn-main">
-                      <div class="tgt-card" class:flag={finalHls.some((h) => !h.debug)}>
-                        <span class="lbl">final message</span>
-                        <div class="tmsg"><MarkdownText text={grouped.finalText} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} /></div>
-                      </div>
-                    </div>
-                    <div class="turn-anns">{#each finalHls as h (h.n)}{@render annBtn(h)}{/each}</div>
-                  </div>
-                {/if}
               {:else}
-                <div class="quiet"><span class="lbl">target</span> No visible turn returned.</div>
+                <div class="quiet"><span class="lbl">target</span> returned an empty response (no reasoning, text, or tool calls) — often a scaffold hiccup, e.g. just after a reset.</div>
               {/if}
             </div>
           {:else}
@@ -957,7 +978,8 @@
     background: var(--hl-bg); box-shadow: inset 0 -2px 0 var(--hl); color: inherit; padding: 0 1px; border-radius: 0;
   }
   .lanes-root.lanes-root :global(mark.hl-debug) {
-    background: transparent; box-shadow: none; border-bottom: 1.5px dashed var(--railc); color: var(--text-muted);
+    background: color-mix(in srgb, var(--aud) 14%, transparent); box-shadow: inset 0 -2px 0 var(--aud);
+    color: inherit; padding: 0 1px; border-radius: 0;
   }
   .hn { font-family: var(--mono); font-weight: 700; color: var(--hl-ink); }
   .debug .hn, .ann.debug .hn, button.deb .hn { color: var(--text-muted); }
@@ -1034,6 +1056,7 @@
   .aud .lbl { color: var(--aud); }
   .reason { color: var(--text-muted); border-left: 2px dotted var(--aud); padding-left: 11px; margin: 0.5em 0; font-style: italic; }
   .reason .lbl { font-style: normal; display: block; margin-bottom: 2px; }
+  .reason-tgt { border-left-color: var(--tgt); margin: 0.4em 0; }
   .callrow { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-top: 10px; }
   .call { max-width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.45; background: var(--chipbg); border: 1px solid var(--border); border-right: 3px solid var(--railc); padding: 6px 10px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .call .fn { color: var(--aud); font-weight: 600; }
@@ -1046,11 +1069,10 @@
   .tgt-card { position: relative; background: var(--tgt-bg); border: 1px solid var(--tgt-line); border-left: 5px solid var(--tgt); border-radius: 0 7px 7px 0; padding: 11px 14px 12px; font-size: 14px; line-height: 1.5; }
   .tgt-card.flag { box-shadow: 0 0 0 1px var(--hl); }
   .tgt-card > .lbl { color: var(--tgt); display: block; margin-bottom: 6px; }
-  .tmsg { font-size: 13.5px; line-height: 1.55; }
-  .tmsg :global(p) { margin: 0.4em 0; }
-  .tmsg :global(ol), .tmsg :global(ul) { margin: 0.4em 0; padding-left: 1.3em; }
-  .tmsg :global(li) { margin: 0.2em 0; }
-  .ttext { white-space: pre-wrap; word-break: break-word; color: var(--text-muted); font-style: italic; border-left: 2px dotted var(--tgt); padding-left: 10px; margin: 2px 0 4px; }
+  .ttext :global(p) { margin: 0.4em 0; }
+  .ttext :global(ol), .ttext :global(ul) { margin: 0.4em 0; padding-left: 1.3em; }
+  .ttext { white-space: pre-wrap; word-break: break-word; line-height: 1.55; margin: 2px 0 6px; }
+  .ttext > .lbl { display: block; margin-bottom: 2px; color: var(--tgt); }
   .tcall { font-family: var(--mono); font-size: 11.6px; line-height: 1.5; background: var(--surface); border: 1px solid var(--tgt-line); border-radius: 3px; padding: 6px 9px; margin: 7px 0 0; }
   .tcall-fn { margin-bottom: 5px; }
   .tcall .fn { color: var(--tgt); font-weight: 700; }
