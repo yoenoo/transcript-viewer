@@ -100,6 +100,34 @@
 
   const totalConcerning = $derived(entries.filter((e) => concernOf(e) >= 6).length);
 
+  // High-level summary grouped by target model × auditor.
+  type ModelSummary = {
+    target: string; auditor: string; n: number; flagged: number;
+    meanConcern: number; meanRealism: number | null; meanEval: number | null;
+  };
+  const mean = (a: number[]): number | null => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  const modelSummary = $derived.by<ModelSummary[]>(() => {
+    const map = new Map<string, AuditIndexEntry[]>();
+    for (const e of entries) {
+      const key = shortModel(e.target_model) + '||' + shortModel(e.auditor_model);
+      (map.get(key) || map.set(key, []).get(key)!).push(e);
+    }
+    const out: ModelSummary[] = [];
+    for (const [key, es] of map) {
+      const [target, auditor] = key.split('||');
+      const concerns = es.map(concernOf);
+      const realisms = es.map((e) => (e.scores || {}).scenario_realism).filter((v): v is number => v != null);
+      const evals = es.map((e) => (e.scores || {}).eval_awareness).filter((v): v is number => v != null);
+      out.push({
+        target, auditor, n: es.length,
+        flagged: concerns.filter((c) => c >= 6).length,
+        meanConcern: mean(concerns) ?? 0,
+        meanRealism: mean(realisms), meanEval: mean(evals),
+      });
+    }
+    return out.sort((a, b) => b.meanConcern - a.meanConcern || b.n - a.n);
+  });
+
   function fmtDate(iso: string): string {
     if (!iso) return '';
     const d = new Date(iso);
@@ -131,6 +159,36 @@
     <h1>Audit transcripts</h1>
     <p class="lede">{entries.length} audits across {groups.length} seeds · {totalConcerning} with concerning behavior (misalignment ≥&nbsp;6).<br>Grouped by scenario — open a seed to see its runs, or a run to read the transcript.</p>
   </header>
+
+  {#if modelSummary.length}
+    <section class="summary">
+      <div class="summary-h"><span class="lbl">Summary</span> by target model × auditor</div>
+      <div class="sumscroll">
+        <table class="sumtab">
+          <thead>
+            <tr>
+              <th>Target model</th><th>Auditor</th>
+              <th class="num">Audits</th><th class="num">Flagged ≥6</th>
+              <th class="num">Misalign (mean)</th><th class="num">Realism</th><th class="num">Eval-aware</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each modelSummary as s (s.target + s.auditor)}
+              <tr>
+                <td class="mname">{s.target}</td>
+                <td class="amodel">{s.auditor}</td>
+                <td class="num">{s.n}</td>
+                <td class="num"><span class="frac">{s.flagged}/{s.n}</span><span class="pct">{s.n ? Math.round((100 * s.flagged) / s.n) : 0}%</span></td>
+                <td class="num"><span class="pill sev-{sev(s.meanConcern)}">{s.meanConcern.toFixed(1)}</span></td>
+                <td class="num">{s.meanRealism != null ? s.meanRealism.toFixed(1) : '—'}</td>
+                <td class="num"><span class="pill sev-{s.meanEval != null ? sev(s.meanEval) : 'low'}">{s.meanEval != null ? s.meanEval.toFixed(1) : '—'}</span></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {/if}
 
   <div class="controls">
     <label class="search">
@@ -249,6 +307,21 @@
   .glyph { width: 22px; height: 22px; } .glyph svg { width: 100%; height: 100%; display: block; }
   h1 { font-family: var(--font-serif); font-size: 30px; font-weight: 600; letter-spacing: -0.015em; margin: 12px 0 8px; }
   .lede { color: var(--text-muted); max-width: 74ch; font-size: 14.5px; line-height: 1.55; margin: 0; }
+
+  .summary { margin: 22px 0 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .summary-h { font-size: 12.5px; color: var(--text-muted); padding: 11px 16px; border-bottom: 1px solid var(--border); }
+  .summary-h .lbl { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin-right: 7px; }
+  .sumscroll { overflow-x: auto; }
+  .sumtab { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .sumtab th { text-align: left; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; padding: 9px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .sumtab th.num, .sumtab td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sumtab td { padding: 9px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .sumtab tbody tr:last-child td { border-bottom: 0; }
+  .sumtab tbody tr:hover { background: var(--surface-alt); }
+  .sumtab .mname { font-weight: 600; color: var(--text); }
+  .sumtab .amodel { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+  .sumtab .pct { color: var(--text-faint); font-size: 11px; margin-left: 6px; }
+  .sumtab .pill { display: inline-block; min-width: 30px; text-align: center; font-family: var(--font-mono); font-size: 11.5px; border-radius: 5px; padding: 1px 7px; }
 
   .controls { display: flex; align-items: center; gap: 12px; margin: 28px 0 20px; flex-wrap: wrap; }
   .search { flex: 1; min-width: 260px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; color: var(--text-faint); }
