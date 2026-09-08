@@ -10,6 +10,12 @@
   let targetFilter = $state('');
   let seedSort = $state<'concern' | 'runs' | 'name'>('concern');
   let expanded = $state<Set<string>>(new Set());
+  let collection = $state('aaa');
+
+  // Collections ("folders"): aaa-harness audits vs native Petri audits, derived
+  // from the transcript id prefix the exporters use.
+  const COLLECTION_LABEL: Record<string, string> = { aaa: 'Model comparison', petri: 'Petri baseline' };
+  function collectionOf(e: AuditIndexEntry): string { return (e.id || '').startsWith('petri-') ? 'petri' : 'aaa'; }
 
   (async () => {
     try {
@@ -51,15 +57,22 @@
     targets: string[]; avgRealism: number | null; totalHl: number;
   };
 
+  const collections = $derived.by<[string, number][]>(() => {
+    const m = new Map<string, number>();
+    for (const e of entries) { const c = collectionOf(e); m.set(c, (m.get(c) || 0) + 1); }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  });
+  const collectionEntries = $derived(entries.filter((e) => collectionOf(e) === collection));
+
   const targetModels = $derived.by<[string, number][]>(() => {
     const m = new Map<string, number>();
-    for (const e of entries) { const t = shortModel(e.target_model); m.set(t, (m.get(t) || 0) + 1); }
+    for (const e of collectionEntries) { const t = shortModel(e.target_model); m.set(t, (m.get(t) || 0) + 1); }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   });
 
   const filtered = $derived.by<AuditIndexEntry[]>(() => {
     const q = query.trim().toLowerCase();
-    return entries.filter((e) => {
+    return collectionEntries.filter((e) => {
       if (targetFilter && shortModel(e.target_model) !== targetFilter) return false;
       if (q && !(
         e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q) ||
@@ -98,7 +111,7 @@
     return out;
   });
 
-  const totalConcerning = $derived(entries.filter((e) => concernOf(e) >= 6).length);
+  const totalConcerning = $derived(collectionEntries.filter((e) => concernOf(e) >= 6).length);
 
   // High-level summary grouped by target model × auditor.
   type ModelSummary = {
@@ -108,7 +121,7 @@
   const mean = (a: number[]): number | null => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
   const modelSummary = $derived.by<ModelSummary[]>(() => {
     const map = new Map<string, AuditIndexEntry[]>();
-    for (const e of entries) {
+    for (const e of collectionEntries) {
       const key = shortModel(e.target_model) + '||' + shortModel(e.auditor_model);
       (map.get(key) || map.set(key, []).get(key)!).push(e);
     }
@@ -157,8 +170,19 @@
       Loupe · Audits
     </div>
     <h1>Audit transcripts</h1>
-    <p class="lede">{entries.length} audits across {groups.length} seeds · {totalConcerning} with concerning behavior (misalignment ≥&nbsp;6).<br>Grouped by scenario — open a seed to see its runs, or a run to read the transcript.</p>
+    <p class="lede">{collectionEntries.length} audits across {groups.length} seeds · {totalConcerning} with concerning behavior (misalignment ≥&nbsp;6).<br>Grouped by scenario — open a seed to see its runs, or a run to read the transcript.</p>
   </header>
+
+  {#if collections.length > 1}
+    <div class="colltabs" role="tablist" aria-label="Collection">
+      {#each collections as [c, n] (c)}
+        <button class="colltab" class:active={collection === c} role="tab" aria-selected={collection === c}
+          onclick={() => { collection = c; targetFilter = ''; expanded = new Set(); }}>
+          {COLLECTION_LABEL[c] ?? c}<span class="cn">{n}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if modelSummary.length}
     <section class="summary">
@@ -307,6 +331,13 @@
   .glyph { width: 22px; height: 22px; } .glyph svg { width: 100%; height: 100%; display: block; }
   h1 { font-family: var(--font-serif); font-size: 30px; font-weight: 600; letter-spacing: -0.015em; margin: 12px 0 8px; }
   .lede { color: var(--text-muted); max-width: 74ch; font-size: 14.5px; line-height: 1.55; margin: 0; }
+
+  .colltabs { display: inline-flex; gap: 3px; margin: 18px 0 0; padding: 3px; background: var(--surface-sunk); border: 1px solid var(--border); border-radius: 10px; }
+  .colltab { font: inherit; font-size: 13px; font-weight: 500; color: var(--text-muted); background: transparent; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+  .colltab:hover { color: var(--text); }
+  .colltab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+  .colltab .cn { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); background: var(--surface-sunk); border-radius: 5px; padding: 1px 6px; }
+  .colltab.active .cn { color: var(--text-muted); background: var(--surface-alt); }
 
   .summary { margin: 22px 0 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
   .summary-h { font-size: 12.5px; color: var(--text-muted); padding: 11px 16px; border-bottom: 1px solid var(--border); }
