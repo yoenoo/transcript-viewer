@@ -114,14 +114,28 @@
   // highlights for an event whose quote falls within a given text slice (a turn).
   // Judge quotes on shell commands are unescaped, but the content stores them
   // JSON-escaped, so also test an unescaped copy of the text.
+  // Judge quotes may elide with "..." and drop markdown emphasis; for *placing* a card on
+  // a turn, accept the quote when every elided fragment is present (emphasis-insensitive).
+  // Inline text marks still require the verbatim quote.
+  const stripEmphasis = (t: string) => t.replace(/[*_`"“”]/g, '');  // emphasis and quote marks
+  function quoteFragments(q: string): string[] {
+    return q.split(/\s*(?:\.\.\.|…)\s*/).map((f) => f.trim()).filter((f) => f.length >= 8);
+  }
+  function textHasQuote(joined: string, unesc: string, q: string): boolean {
+    if (joined.includes(q) || unesc.includes(q)) return true;
+    const frags = quoteFragments(q);
+    if (!frags.length) return false;
+    const nj = stripEmphasis(joined), nu = stripEmphasis(unesc);
+    return frags.every((f) => { const nf = stripEmphasis(f); return nj.includes(nf) || nu.includes(nf); });
+  }
   function hlsInText(id: string, ...texts: string[]): HL[] {
     const joined = texts.join('\n');
     const unesc = unescapeJsonStr(joined);
-    return (highlightsByEvent.get(id) || []).filter((h) => joined.includes(h.dq) || unesc.includes(h.dq));
+    return (highlightsByEvent.get(id) || []).filter((h) => textHasQuote(joined, unesc, h.dq));
   }
   function quoteInText(id: string, text: string): boolean {
     const unesc = unescapeJsonStr(text);
-    return (highlightsByEvent.get(id) || []).some((h) => text.includes(h.dq) || unesc.includes(h.dq));
+    return (highlightsByEvent.get(id) || []).some((h) => textHasQuote(text, unesc, h.dq));
   }
   // A judge quote on a target tool call is the escaped "[id] fn({\"command\": \"…\"})"
   // form; the card now shows only the unescaped command, so pull the command out of
@@ -768,12 +782,12 @@
             {@const grouped = groupTurns(ev)}
             {@const matchedN = new Set(grouped.groups.flatMap((g) => g.fold ? [] : g.hls.map((h) => h.n)))}
             {@const unmatched = hls.filter((h) => !matchedN.has(h.n))}
+            <!-- a quote not located in any single turn's text still belongs to this reply:
+                 show its card beside the first turn instead of in a row of its own above it -->
+            {@const annsFor = (gi: number, own: HL[]) => (gi === 0 ? [...unmatched, ...own].sort((a, b) => a.n - b.n) : own)}
             <div class="lt lt-wide">
               {#if grouped.groups.length}
                 <div class="tlabel lbl">{#if grouped.turnCount}{grouped.turnCount} turn{grouped.turnCount === 1 ? '' : 's'}{:else}reply{/if}</div>
-                {#if unmatched.length}
-                  <div class="turn-row"><div class="turn-main"></div><div class="turn-anns">{#each unmatched as h (h.n)}{@render annBtn(h)}{/each}</div></div>
-                {/if}
                 {#each grouped.groups as g, gi (gi)}
                   {#if g.fold}
                     <div class="turn-row">
@@ -787,12 +801,12 @@
                           </div>
                         </details>
                       </div>
-                      <div class="turn-anns"></div>
+                      <div class="turn-anns">{#each annsFor(gi, []) as h (h.n)}{@render annBtn(h)}{/each}</div>
                     </div>
                   {:else}
                     <div class="turn-row">
                       <div class="turn-main">{@render targetCard(ev.id, g.t, g.no, g.hls)}</div>
-                      <div class="turn-anns">{#each g.hls as h (h.n)}{@render annBtn(h)}{/each}</div>
+                      <div class="turn-anns">{#each annsFor(gi, g.hls) as h (h.n)}{@render annBtn(h)}{/each}</div>
                     </div>
                   {/if}
                 {/each}
