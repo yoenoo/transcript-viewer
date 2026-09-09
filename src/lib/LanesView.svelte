@@ -410,10 +410,10 @@
   type ScoreRow = { name: string; value: number; positive: boolean; flag: 'concerning' | 'weak' | null; notable: boolean; severity: number };
   function classifyScore(name: string, value: number): ScoreRow {
     const positive = isPositiveDim(name);
-    const flag = positive ? (value <= 4 ? 'weak' : null) : (value >= 6 ? 'concerning' : null);
+    const flag = positive ? (value <= 3 ? 'weak' : null) : (value >= 7 ? 'concerning' : null);
     // Show elevated negatives (a bad behavior showed up) and weak positives (a
     // dimension that should be high came out low).
-    const notable = positive ? value <= 4 : value > 1;
+    const notable = positive ? value <= 3 : value > 1;
     const severity = positive ? 10 - value : value;
     return { name, value, positive, flag, notable, severity };
   }
@@ -906,7 +906,7 @@
       <span class="lbl muted">{shortModel(transcript.auditor_model)} · {hInline.length} highlights</span>
       <div class="jgrid">
         <div class="scores">
-          <div class="scores-cap lbl">notable dimensions · <span class="k-concern">concerning</span> behavior scored high (≥6) · <span class="k-weak">quality</span> scored low (≤4)</div>
+          <div class="scores-cap lbl">notable dimensions · <span class="k-concern">concerning</span> behavior scored high (≥7) · <span class="k-weak">quality</span> scored low (≤3)</div>
           {#each scoreRows as s (s.name)}
             <div class="srow" class:concern={s.flag === 'concerning'} class:weak={s.flag === 'weak'}>
               <span>{s.name.replace(/_/g, ' ')}{#if s.positive}<span class="dir" title="higher is better">▲</span>{/if}<span class="sbar" class:pos={s.positive}><i style="--v:{s.value * 10}%"></i></span></span>
