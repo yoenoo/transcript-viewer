@@ -23,19 +23,38 @@
     }),
   );
 
+  // Transcripts are full of pseudo-XML scaffolding tags (<eval_plan>, <thinking>,
+  // <target_response> …). CommonMark treats a line starting with any tag as a raw
+  // HTML block and passes everything up to the next blank line through unparsed,
+  // so the markdown inside is lost and the browser collapses its newlines. Escape
+  // every tag that is not real HTML so it renders as visible text; leave code
+  // spans and fences alone (their content is escaped by marked already).
+  const HTML_TAGS = new Set(['a', 'b', 'i', 'em', 'strong', 'code', 'pre', 'br', 'hr', 'p', 'div', 'span', 'mark',
+    'sub', 'sup', 'kbd', 's', 'del', 'ins', 'u', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'blockquote', 'details', 'summary', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+  function escapePseudoTags(src: string): string {
+    return src
+      .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+      .map((part, i) => (i % 2 === 1 ? part
+        : part.replace(/<(\/?)([A-Za-z][\w:-]*)(\s[^<>]*)?\/?>/g, (m, _slash, name) =>
+            HTML_TAGS.has(name.toLowerCase()) ? m : '&lt;' + m.slice(1))))
+      .join('');
+  }
+
   // Insert literal <mark>…</mark> tokens around every occurrence of a quoted
   // string, then hand the result to marked. marked passes raw HTML through,
   // so highlights survive markdown rendering for the common case where the
   // quoted span doesn't straddle markdown syntax.
   const html = $derived.by(() => {
-    const src = text ?? '';
+    const src = escapePseudoTags(text ?? '');
     if (!src) return '';
     if (quotes.length === 0 && debugQuotes.length === 0) return md.parse(src) as string;
 
     // ranges tagged debug=false (concerning) or true (debug); concerning wins overlaps
     const ranges: { s: number; e: number; debug: boolean }[] = [];
     const collect = (list: string[], debug: boolean) => {
-      for (const q of list) {
+      for (const raw of list) {
+        const q = escapePseudoTags(raw);  // match against the escaped source
         if (!q) continue;
         let from = 0;
         while (from < src.length) {
