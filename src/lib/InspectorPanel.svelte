@@ -45,7 +45,7 @@
   }
 
   function scoreTone(name: string, value: number, source: string): string {
-    if (source === 'debug' || positiveDimensions.has(name)) return value >= 7 ? 'good' : value >= 4 ? 'mild' : 'quiet';
+    if ((source || '').startsWith('debug') || positiveDimensions.has(name)) return value >= 7 ? 'good' : value >= 4 ? 'mild' : 'quiet';
     if (metaDimensions.has(name)) return value >= 6 ? 'meta' : 'quiet';
     return value >= 6 ? 'high' : value >= 4 ? 'mild' : 'quiet';
   }

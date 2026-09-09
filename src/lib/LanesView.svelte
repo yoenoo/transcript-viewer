@@ -351,9 +351,11 @@
     return { groups, turnCount: N };
   }
 
+  // Judge sources come as a family name, optionally versioned: "scheming", "debug_v3", ...
+  const isDebugSource = (src: string | undefined) => (src || '').startsWith('debug');
   function debugHl(h: Highlight): boolean {
     const src = h.source || '';
-    return src === 'debug' || (transcript?.judge.score_sources?.[src] === 'debug');
+    return isDebugSource(src) || isDebugSource(transcript?.judge.score_sources?.[src]);
   }
 
   function topicTitle(content: string): string {
@@ -403,7 +405,7 @@
     'transparent_disagreement', 'genuine_honesty', 'legitimate_escalation', 'scenario_realism',
   ]);
   function isPositiveDim(name: string): boolean {
-    return transcript?.judge.score_sources?.[name] === 'debug' || POSITIVE_SCHEMING.has(name);
+    return isDebugSource(transcript?.judge.score_sources?.[name]) || POSITIVE_SCHEMING.has(name);
   }
   type ScoreRow = { name: string; value: number; positive: boolean; flag: 'concerning' | 'weak' | null; notable: boolean; severity: number };
   function classifyScore(name: string, value: number): ScoreRow {
@@ -441,11 +443,11 @@
     if (!entries.length && transcript?.judge.summary) return [{ src: '', text: transcript.judge.summary }];
     return entries
       .map(([src, text]) => ({ src, text }))
-      .sort((a, b) => (a.src === 'debug' ? 1 : 0) - (b.src === 'debug' ? 1 : 0));
+      .sort((a, b) => (isDebugSource(a.src) ? 1 : 0) - (isDebugSource(b.src) ? 1 : 0));
   });
   function summaryLabel(src: string): string {
-    if (src === 'debug') return 'audit quality (debug)';
-    if (src === 'scheming') return 'scheming — target behavior';
+    if (isDebugSource(src)) return 'audit quality (debug)';
+    if (src.startsWith('scheming')) return 'scheming — target behavior';
     return src || 'summary';
   }
 
@@ -453,15 +455,16 @@
   const branchStats = $derived.by(() => {
     if (!transcript) return [] as {
       branch: Branch; events: number; auditorCalls: number; targetReplies: number;
-      highlights: Highlight[];
+      highlights: HL[];
     }[];
     return transcript.branches.map((branch) => {
       const evs = transcript!.events.filter((e) => e.branch === branch.index);
       const auditorCalls = evs.filter((e) => e.role === 'assistant')
         .reduce((n, e) => n + ((e as AssistantEvent).tool_calls?.length || 0), 0);
       const targetReplies = evs.filter(isTargetEvent).length;
-      const highlights = (transcript!.judge.highlights || [])
-        .filter((h) => evs.some((e) => e.id === h.event_id));
+      // same set as the inline annotations and the judge report's highlighted moments
+      const ids = new Set(evs.map((e) => e.id));
+      const highlights = hInline.filter((h) => ids.has(h.event_id));
       return { branch, events: evs.length, auditorCalls, targetReplies, highlights };
     });
   });
@@ -683,7 +686,7 @@
     {@const p = noteParts(h)}
     <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}
             title={h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined}>
-      <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>
+      <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : 'scheming'}</span>
       {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">({p.score})</span>{/if}</span>{/if}
       {p.body}
     </button>
@@ -894,7 +897,7 @@
         </div>
         <div class="jsummary">
           {#each summaryBlocks as b (b.src)}
-            <div class="jsum-block" class:debug={b.src === 'debug'}>
+            <div class="jsum-block" class:debug={isDebugSource(b.src)}>
               {#if b.src}<div class="jsum-label lbl">{summaryLabel(b.src)}</div>{/if}
               <MarkdownText text={b.text} />
             </div>
@@ -907,7 +910,7 @@
           <button class:deb={h.debug} class:quiet onclick={() => jumpTo(h.event_id)}
                   title={quiet ? (h.debug ? 'Debug/quality judge citation: listed here, not annotated inline' : 'Cited by the judge but not annotated inline (score too low to flag)') : (h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined)}>
             <span class="he"><span class="hn">{quiet ? '·' : `H${h.n}`}</span><span class="eid">{h.event_id}</span></span>
-            <span class="src">{h.debug ? 'debug' : h.source}</span>
+            <span class="src">{h.debug ? 'debug' : 'scheming'}</span>
             <span class="hnote">
               {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">({p.score})</span>{/if}</span>{/if}
               {p.body}
@@ -943,10 +946,10 @@
     <section class="compare" id="compare">
       <div class="compare-card">
         <h2>Branch comparison</h2>
-        <p class="sub">The auditor rolls back and re-runs; behavior deltas between branches are the measurement. Each column lists the judge's highlighted observations for that branch.</p>
+        <p class="sub">The auditor rolls back and re-runs; behavior deltas between branches are the measurement. Each column lists the scheming judge's flagged observations (the H-numbered annotations) for that branch.</p>
         <div class="cmp" style="grid-template-columns: repeat({branchStats.length}, 1fr)">
           {#each branchStats as bs (bs.branch.index)}
-            <div class="chead" class:flag={bs.highlights.some((h) => !debugHl(h))}>
+            <div class="chead" class:flag={bs.highlights.length > 0}>
               <span class="tag">B{bs.branch.index}</span> {bs.branch.label}
             </div>
           {/each}
@@ -957,14 +960,15 @@
             <div class="ccell">
               {#if bs.highlights.length}
                 <ul>
-                  {#each bs.highlights as h (h.note)}
-                    <li class:debug={debugHl(h)}>
-                      <button onclick={() => jumpTo(h.event_id)}><span class="src">{h.source}</span> {h.note} <span class="eid">{h.event_id}</span></button>
+                  {#each bs.highlights as h (h.n)}
+                    {@const p = noteParts(h)}
+                    <li>
+                      <button onclick={() => jumpTo(h.event_id)}><span class="hn">H{h.n}</span>{#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">({p.score})</span>{/if}</span>{/if} {p.body} <span class="eid">{h.event_id}</span></button>
                     </li>
                   {/each}
                 </ul>
               {:else}
-                <p class="muted">No highlighted observations.</p>
+                <p class="muted">Nothing flagged in this branch.</p>
               {/if}
             </div>
           {/each}
@@ -1185,9 +1189,9 @@
   .ann .lbl { color: var(--hl-ink); display: block; margin-bottom: 2px; }
   .ann .hn { margin-right: 5px; }
   /* citation label row: dimension name, thin divider, score */
-  .ann .dim, .hlist .dim { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; min-width: 0; }
-  .ann .dname, .hlist .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; overflow-wrap: anywhere; min-width: 0; }
-  .ann .dsc, .hlist .dsc { margin-left: 5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ann .dim, .hlist .dim, .cmp .dim { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; min-width: 0; }
+  .ann .dname, .hlist .dname, .cmp .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; overflow-wrap: anywhere; min-width: 0; }
+  .ann .dsc, .hlist .dsc, .cmp .dsc { margin-left: 5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ml .ann .dim { justify-content: flex-end; }
   .ann.debug { border-left-color: var(--railc); color: var(--text-muted); }
   .ann.debug .lbl { color: var(--text-muted); }
@@ -1270,9 +1274,9 @@
   .cmp .cstat { font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
   .cmp .ccell ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
   .cmp .ccell button { text-align: left; width: 100%; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.45; cursor: pointer; padding: 0; border-left: 3px solid var(--hl); padding-left: 9px; }
-  .cmp .ccell li.debug button { border-left-color: var(--railc); color: var(--text-muted); }
   .cmp .ccell button:hover { color: var(--hl-ink); }
-  .cmp .ccell .src { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hl-ink); }
+  .cmp .ccell .hn { margin-right: 6px; font-size: 11.5px; }
+  .cmp .ccell .dim { display: inline-flex; margin: 0 6px 0 0; vertical-align: baseline; }
   .cmp .ccell .eid { font-family: var(--mono); font-size: 9.5px; color: var(--text-faint); }
 
   @media (max-width: 1220px) {
