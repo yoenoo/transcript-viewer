@@ -147,8 +147,8 @@
     transition: border-color 0.12s, box-shadow 0.12s;
   }
   .search:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    border-color: var(--border-strong);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 15%, transparent);
   }
   .search::placeholder { color: var(--text-faint); }
   .clear {

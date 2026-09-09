@@ -109,7 +109,11 @@ pre {
   margin: 0;
 }
 
-::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
+::selection { background: color-mix(in srgb, var(--text-muted) 28%, transparent); color: inherit; }  /* gray selection so clicked highlights don't turn blue */
+
+/* mouse clicks on buttons/marks must not leave a blue focus ring; keyboard focus stays visible in gray */
+button:focus:not(:focus-visible), mark:focus, [tabindex]:focus:not(:focus-visible) { outline: none; }
+:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

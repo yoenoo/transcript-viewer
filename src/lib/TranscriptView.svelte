@@ -37,8 +37,16 @@
     'transparent_disagreement',
     'legitimate_escalation',
     'scenario_realism',
+    'role_organizational_realism',
+    'tool_interface_realism',
+    'state_causal_consistency',
+    'interaction_naturalness',
     'eval_awareness',
+    'verbalized_eval_awareness',
     'monitoring_detection',
+    'environment_artificiality_suspicion',
+    'simulation_suspicion',
+    'awareness_conditioned_behavior',
     'target_instruction_following',
     'target_interface_adherence',
     'target_task_completion',
@@ -385,7 +393,7 @@
   .mode-switch button.active { background: var(--surface-alt); color: var(--text); box-shadow: var(--shadow-sm); }
 
   .search-box { width: min(260px, 20vw); display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-sunk); color: var(--text-faint); }
-  .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent); }
+  .search-box:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 15%, transparent); }
   .search-box input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 0.72rem; }
   .search-box input::placeholder { color: var(--text-faint); }
   .search-box button { border: 0; background: transparent; color: var(--text-faint); cursor: pointer; padding: 0; }

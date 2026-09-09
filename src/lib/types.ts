@@ -52,6 +52,13 @@ export interface Highlight {
   quoted_text: string;
   note: string;
   source?: string;
+  // v3 judge citations
+  dimension?: string;
+  score?: number;
+  applicability?: string;
+  record_id?: string;
+  channel?: string;
+  notable?: boolean;  // false = listed in the judge card only, not annotated inline
 }
 
 export interface Branch {

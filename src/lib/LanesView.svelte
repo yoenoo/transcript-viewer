@@ -83,10 +83,10 @@
   });
 
   function quotesFor(id: string): string[] {
-    return (highlightsByEvent.get(id) || []).filter((h) => !h.debug).map((h) => h.dq).filter(Boolean);
+    return (highlightsByEvent.get(id) || []).filter((h) => !h.debug && h.notable !== false).map((h) => h.dq).filter(Boolean);
   }
   function debugQuotesFor(id: string): string[] {
-    return (highlightsByEvent.get(id) || []).filter((h) => h.debug).map((h) => h.dq).filter(Boolean);
+    return (highlightsByEvent.get(id) || []).filter((h) => h.debug && h.notable !== false).map((h) => h.dq).filter(Boolean);
   }
   // highlights for an event whose quote falls within a given text slice (a turn).
   // Judge quotes on shell commands are unescaped, but the content stores them
@@ -638,7 +638,8 @@
   </header>
 
   {#snippet annBtn(h: HL)}
-    <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}>
+    <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}
+            title={h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined}>
       <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>{h.note}
     </button>
   {/snippet}
@@ -765,7 +766,7 @@
                   {:else}
                     <div class="turn-row">
                       <div class="turn-main">{@render targetCard(ev.id, g.t, g.no, g.hls)}</div>
-                      <div class="turn-anns">{#each g.hls as h (h.n)}{@render annBtn(h)}{/each}</div>
+                      <div class="turn-anns">{#each g.hls.filter((h) => h.notable !== false) as h (h.n)}{@render annBtn(h)}{/each}</div>
                     </div>
                   {/if}
                 {/each}
@@ -1129,7 +1130,7 @@
   .ml .ann.debug { border-right-color: var(--railc); }
 
   :global(.flash) { animation: flash 1.4s ease-out; }
-  @keyframes flash { 0% { box-shadow: 0 0 0 2px var(--hl); } 100% { box-shadow: 0 0 0 8px transparent; } }
+  @keyframes flash { 0% { box-shadow: 0 0 0 2px var(--text-muted); } 100% { box-shadow: 0 0 0 8px transparent; } }  /* gray, not brand color */
 
   /* ---- judge ---- */
   .judge { max-width: 1480px; margin: 0 auto; padding: 18px 20px 30px; width: 100%; }

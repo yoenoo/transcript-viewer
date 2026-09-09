@@ -336,13 +336,15 @@
     border-color: var(--warning);
   }
 
+  /* active (jumped-to) event: neutral gray, not the brand accent */
   .event.active .event-btn {
-    background: var(--accent-soft);
+    background: var(--surface-alt);
     color: var(--text);
+    box-shadow: inset 3px 0 0 var(--text-muted);
   }
   .event.active .e-label { font-weight: 600; }
   .event.active .dot {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--text-muted);
+    border-color: var(--text-muted);
   }
 </style>

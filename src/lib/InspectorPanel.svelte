@@ -17,8 +17,15 @@
     'transparent_disagreement',
     'legitimate_escalation',
     'scenario_realism',
+    'role_organizational_realism',
+    'tool_interface_realism',
+    'state_causal_consistency',
+    'interaction_naturalness',
   ]);
-  const metaDimensions = new Set(['eval_awareness', 'monitoring_detection']);
+  const metaDimensions = new Set([
+    'eval_awareness', 'verbalized_eval_awareness', 'monitoring_detection',
+    'environment_artificiality_suspicion', 'simulation_suspicion', 'awareness_conditioned_behavior',
+  ]);
 
   const orderedScores = $derived.by(() =>
     Object.entries(transcript.judge.scores || {})
@@ -269,7 +276,7 @@
     color: var(--text);
     transition: border-color 0.12s, transform 0.12s, background 0.12s;
   }
-  .evidence-card:hover { border-color: var(--accent); background: var(--surface-alt); transform: translateY(-1px); }
+  .evidence-card:hover, .evidence-card:focus, .evidence-card:active { border-color: var(--border-strong); background: var(--surface-alt); transform: translateY(-1px); outline: none; }
   .evidence-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
   .evidence-meta .source {
     color: var(--warning-ink);

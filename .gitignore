@@ -15,6 +15,7 @@ dist-ssr
 # Transcript data is supplied per-deployment; keep it out of git.
 # (may contain canary / benchmark / scenario content that must not be published)
 public/data/*
+public/data-archive/
 !public/data/.gitkeep
 
 # Editor directories and files
