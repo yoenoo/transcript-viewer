@@ -78,9 +78,10 @@
   const hNotable = $derived(hAll.filter((h) => h.notable !== false));
   const hQuiet = $derived(hAll.filter((h) => h.notable === false));
 
-  // The exporter flattens a v3 citation into `dimension 5/10 — interpretation · Alt: ...`;
-  // split it back so the parts can be rendered separately.
-  type NoteParts = { score: string | null; body: string; alt: string | null };
+  // The exporter flattens a v3 citation into `dimension 5/10 — interpretation`; split it back
+  // so the parts can be rendered separately. Older exports appended ` · Alt: <competing
+  // reading>`; that field was dropped from the judge and is stripped here, not shown.
+  type NoteParts = { score: string | null; body: string };
   function noteParts(h: HL): NoteParts {
     let s = h.note || '';
     let score: string | null = null;
@@ -90,10 +91,9 @@
       s = i >= 0 ? s.slice(i + 3) : '';
       score = head.slice(h.dimension.length).trim() || null;
     }
-    let alt: string | null = null;
     const j = s.indexOf(' · Alt: ');
-    if (j >= 0) { alt = s.slice(j + 8); s = s.slice(0, j); }
-    return { score, body: s, alt };
+    if (j >= 0) s = s.slice(0, j);
+    return { score, body: s };
   }
 
   const highlightsByEvent = $derived.by(() => {
@@ -666,9 +666,8 @@
     <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}
             title={h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined}>
       <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>
-      {#if h.dimension}<span class="dim">{h.dimension}{#if p.score} <b>{p.score}</b>{/if}</span>{/if}
+      {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">{p.score.replace('/', ' / ')}</span>{/if}</span>{/if}
       {p.body}
-      {#if p.alt}<span class="alt">Alt: {p.alt}</span>{/if}
     </button>
   {/snippet}
 
@@ -892,9 +891,8 @@
             <span class="he"><span class="hn">{quiet ? '·' : `H${h.n}`}</span><span class="eid">{h.event_id}</span></span>
             <span class="src">{h.debug ? 'debug' : h.source}</span>
             <span class="hnote">
-              {#if h.dimension}<span class="dim">{h.dimension}{#if p.score} <b>{p.score}</b>{/if}</span>{/if}
+              {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">{p.score.replace('/', ' / ')}</span>{/if}</span>{/if}
               {p.body}
-              {#if p.alt}<span class="alt">Alt: {p.alt}</span>{/if}
             </span>
           </button>
         </li>
@@ -1167,9 +1165,11 @@
   .ann:hover { background: var(--surface-alt); }
   .ann .lbl { color: var(--hl-ink); display: block; margin-bottom: 2px; }
   .ann .hn { margin-right: 5px; }
-  .ann .dim, .hlist .dim { display: inline-block; font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border); padding: 0 5px; margin: 0 4px 2px 0; vertical-align: 1px; }
-  .ann .dim b, .hlist .dim b { color: var(--text); font-weight: 600; }
-  .ann .alt, .hlist .alt { display: block; margin-top: 3px; font-size: 11.5px; color: var(--text-faint); font-style: italic; }
+  /* citation label row: dimension name, thin divider, score */
+  .ann .dim, .hlist .dim { display: flex; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; }
+  .ann .dname, .hlist .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; }
+  .ann .dsc, .hlist .dsc { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border-strong); color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ml .ann .dim { justify-content: flex-end; }
   .ann.debug { border-left-color: var(--railc); color: var(--text-muted); }
   .ann.debug .lbl { color: var(--text-muted); }
   .ml .ann { text-align: right; border-left: 0; border-right: 3px solid var(--hl); }
