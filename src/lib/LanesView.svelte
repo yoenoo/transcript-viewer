@@ -1125,7 +1125,8 @@
   .lt-wide { grid-column: 4 / 6; }
   .turn-row { display: flex; gap: 14px; align-items: flex-start; }
   .turn-main { flex: 1; min-width: 0; }
-  .turn-anns { flex: 0 0 208px; display: flex; flex-direction: column; gap: 6px; }
+  /* fixed column: min-width 0 so a long dimension name can never widen it and narrow the card */
+  .turn-anns { flex: 0 0 208px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .tgt-card { position: relative; background: var(--tgt-bg); border: 1px solid var(--tgt-line); border-left: 5px solid var(--tgt); border-radius: 0 7px 7px 0; padding: 11px 14px 12px; font-size: 14px; line-height: 1.5; }
   .tgt-card.flag { box-shadow: 0 0 0 1px var(--hl); }
   .tgt-card > .lbl { color: var(--tgt); display: block; margin-bottom: 6px; }
@@ -1179,13 +1180,13 @@
   .cut b { color: var(--text); }
 
   /* margin annotations */
-  .ann { text-align: left; font-size: 12px; line-height: 1.45; color: var(--text); border: 0; border-left: 3px solid var(--hl); background: var(--surface); padding: 7px 9px; cursor: pointer; font-family: inherit; }
+  .ann { text-align: left; font-size: 12px; line-height: 1.45; color: var(--text); border: 0; border-left: 3px solid var(--hl); background: var(--surface); padding: 7px 9px; cursor: pointer; font-family: inherit; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .ann:hover { background: var(--surface-alt); }
   .ann .lbl { color: var(--hl-ink); display: block; margin-bottom: 2px; }
   .ann .hn { margin-right: 5px; }
   /* citation label row: dimension name, thin divider, score */
-  .ann .dim, .hlist .dim { display: flex; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; }
-  .ann .dname, .hlist .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; }
+  .ann .dim, .hlist .dim { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; min-width: 0; }
+  .ann .dname, .hlist .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; overflow-wrap: anywhere; min-width: 0; }
   .ann .dsc, .hlist .dsc { margin-left: 5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ml .ann .dim { justify-content: flex-end; }
   .ann.debug { border-left-color: var(--railc); color: var(--text-muted); }
