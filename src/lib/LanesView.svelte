@@ -510,6 +510,7 @@
 
   // Horizontal position (%) of each branch boundary, on the timeband's event-count
   // basis, so a single divider can span the silhouette and the band aligned.
+  const flaggedBeats = $derived(timeline.filter((s) => s.hl > 0));
   const cutPcts = $derived.by<number[]>(() => {
     const total = timeline.reduce((n, s) => n + s.count, 0);
     if (!total || !timeline.length) return [];
@@ -667,14 +668,17 @@
       {/each}
     </div>
 
-    <nav class="timeband" aria-label="Timeline">
-      {#each timeline as seg, i (i)}
-        <button type="button" class:flag={seg.flagged} style="--w:{seg.count}" onclick={() => jumpTo(seg.anchorId)} title={seg.label}>
-          <span class="segnm">{seg.label}</span>
-          <span class="segmeta">B{seg.branch}{#if seg.hl} · {seg.hl} hl{/if}</span>
-        </button>
-      {/each}
-    </nav>
+    {#if flaggedBeats.length}
+      <!-- only the beats the scheming judge flagged; the overview bars above still cover every event -->
+      <nav class="timeband" aria-label="Flagged moments">
+        {#each flaggedBeats as seg (seg.anchorId)}
+          <button type="button" class="flag" onclick={() => jumpTo(seg.anchorId)} title={seg.label}>
+            <span class="segnm">{seg.label}</span>
+            <span class="segmeta">B{seg.branch} · {seg.hl} hl</span>
+          </button>
+        {/each}
+      </nav>
+    {/if}
 
     <div class="posline">
       <span class="mono">at <b>{curEventId || transcript.events[0]?.id}</b> · <span>{curBranchLabel}</span></span>
@@ -1085,7 +1089,7 @@
   .ovcols i.hl { box-shadow: inset 0 -3px 0 var(--hl); }
 
   .timeband { display: flex; gap: 2px; max-width: 1480px; margin: 5px auto 0; }
-  .timeband button { flex: var(--w, 1); min-width: 0; text-align: left; cursor: pointer; appearance: none; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--railc); padding: 5px 9px 6px; font: inherit; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; }
+  .timeband button { flex: 1 1 0; min-width: 0; max-width: 260px; text-align: left; cursor: pointer; appearance: none; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--railc); padding: 5px 9px 6px; font: inherit; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; }
   .timeband button:hover { border-color: var(--text); }
   .timeband button.flag { border-top-color: var(--hl); }
   .timeband .segnm { font-size: 10.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
