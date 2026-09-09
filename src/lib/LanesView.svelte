@@ -67,16 +67,18 @@
   }
 
   type HL = Highlight & { n: number; debug: boolean; dq: string };
-  // H-numbers are assigned to inline annotations first (notable !== false), so H1..Hk in the
-  // judge card are exactly the annotations you can find in the transcript. Low-score citations
-  // the judge listed but did not flag (notable: false) are numbered after them and only listed.
+  // Only scheming-judge citations the judge flagged (notable !== false) are annotated inline:
+  // margin cards, text marks, minimap counts. Debug/quality citations and low-score evidence
+  // are listed in the judge report only. H-numbers go to the inline set first, so H1..Hk in
+  // the report are exactly the annotations you can find in the transcript.
+  const isInline = (h: Highlight) => !debugHl(h) && h.notable !== false;
   const hAll = $derived.by<HL[]>(() => {
     const raw = transcript?.judge.highlights || [];
-    const order = [...raw.filter((h) => h.notable !== false), ...raw.filter((h) => h.notable === false)];
+    const order = [...raw.filter(isInline), ...raw.filter((h) => !isInline(h))];
     return order.map((h, i) => ({ ...h, n: i + 1, debug: debugHl(h), dq: decodeEntities(h.quoted_text) }));
   });
-  const hNotable = $derived(hAll.filter((h) => h.notable !== false));
-  const hQuiet = $derived(hAll.filter((h) => h.notable === false));
+  const hInline = $derived(hAll.filter(isInline));
+  const hQuiet = $derived(hAll.filter((h) => !isInline(h)));
 
   // The exporter flattens a v3 citation into `dimension 5/10 — interpretation`; split it back
   // so the parts can be rendered separately. Older exports appended ` · Alt: <competing
@@ -98,7 +100,7 @@
 
   const highlightsByEvent = $derived.by(() => {
     const m = new Map<string, HL[]>();
-    for (const h of hAll) {
+    for (const h of hInline) {
       const arr = m.get(h.event_id) || [];
       arr.push(h);
       m.set(h.event_id, arr);
@@ -107,10 +109,7 @@
   });
 
   function quotesFor(id: string): string[] {
-    return (highlightsByEvent.get(id) || []).filter((h) => !h.debug && h.notable !== false).map((h) => h.dq).filter(Boolean);
-  }
-  function debugQuotesFor(id: string): string[] {
-    return (highlightsByEvent.get(id) || []).filter((h) => h.debug && h.notable !== false).map((h) => h.dq).filter(Boolean);
+    return (highlightsByEvent.get(id) || []).map((h) => h.dq).filter(Boolean);
   }
   // highlights for an event whose quote falls within a given text slice (a turn).
   // Judge quotes on shell commands are unescaped, but the content stores them
@@ -131,11 +130,11 @@
     const m = q.match(/"command"\s*:\s*"((?:[^"\\]|\\.)*)/);
     return m ? unescapeJsonStr(m[1]) : null;
   }
-  function cmdQuotes(id: string): { scheming: string[]; debug: string[] } {
-    const out = { scheming: [] as string[], debug: [] as string[] };
+  function cmdQuotes(id: string): string[] {
+    const out: string[] = [];
     for (const h of highlightsByEvent.get(id) || []) {
       const cmd = extractCmd(h.dq);
-      if (cmd) (h.debug ? out.debug : out.scheming).push(stripTrunc(cmd).text);
+      if (cmd) out.push(stripTrunc(cmd).text);
     }
     return out;
   }
@@ -614,7 +613,7 @@
       <h1>{transcript.seed_name || transcript.title} <span class="mono">· {logId}</span></h1>
       <span class="stat">auditor <b>{shortModel(transcript.auditor_model)}</b></span>
       <span class="stat">target <b>{shortModel(transcript.target_model)}</b> · {transcript.scaffold_name}</span>
-      <span class="stat"><b>{transcript.branches.length}</b> branches · <b>{hNotable.length}</b> highlights · <b>{totalToolCalls}</b> tool calls · {fmtDuration(transcript.total_time_s)}{#if usage.totalCost} · ${usage.totalCost.toFixed(2)}{/if}</span>
+      <span class="stat"><b>{transcript.branches.length}</b> branches · <b>{hInline.length}</b> highlights · <b>{totalToolCalls}</b> tool calls · {fmtDuration(transcript.total_time_s)}{#if usage.totalCost} · ${usage.totalCost.toFixed(2)}{/if}</span>
     </div>
 
     <div class="controls">
@@ -674,8 +673,8 @@
   {#snippet targetCard(id: string, t: NTurn, no: string, hls: HL[])}
     <div class="tgt-card" class:flag={hls.some((h) => !h.debug)}>
       <span class="lbl">turn {no}</span>
-      {#if t.reasoning}<div class="reason reason-tgt"><span class="lbl">reasoning</span> <MarkdownText text={t.reasoning} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
-      {#if t.text}<div class="ttext"><span class="lbl">message</span><MarkdownText text={t.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>{/if}
+      {#if t.reasoning}<div class="reason reason-tgt"><span class="lbl">reasoning</span> <MarkdownText text={t.reasoning} quotes={quotesFor(id)} /></div>{/if}
+      {#if t.text}<div class="ttext"><span class="lbl">message</span><MarkdownText text={t.text} quotes={quotesFor(id)} /></div>{/if}
       {#each t.calls as c, ci (ci)}
         {@const args = c.args}
         {@const resultText = cleanResult(c.result)}
@@ -685,26 +684,26 @@
             {@const cq = cmdQuotes(id)}
             {@const cmd = stripTrunc(args.command)}
             {#if typeof args.description === 'string'}<div class="tcall-desc">{args.description}</div>{/if}
-            <div class="tcall-cmd"><HighlightedText text={cmd.text} quotes={[...quotesFor(id), ...cq.scheming]} debugQuotes={[...debugQuotesFor(id), ...cq.debug]} />{#if cmd.more}<span class="trunc">⋯ {cmd.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
+            <div class="tcall-cmd"><HighlightedText text={cmd.text} quotes={[...quotesFor(id), ...cq]} />{#if cmd.more}<span class="trunc">⋯ {cmd.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
           {:else if args}
             <div class="tcall-args">
               {#each Object.entries(args) as [k, v] (k)}
                 {@const av = stripTrunc(asText(v))}
-                <div class="tcall-arg"><span class="argk">{k}</span><span class="argv"><HighlightedText text={av.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} />{#if av.more}<span class="trunc">⋯ {av.more.toLocaleString()} more truncated</span>{/if}</span></div>
+                <div class="tcall-arg"><span class="argk">{k}</span><span class="argv"><HighlightedText text={av.text} quotes={quotesFor(id)} />{#if av.more}<span class="trunc">⋯ {av.more.toLocaleString()} more truncated</span>{/if}</span></div>
               {/each}
             </div>
           {:else if c.argStr}
-            <div class="tcall-cmd"><HighlightedText text={stripTrunc(c.argStr).text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} /></div>
+            <div class="tcall-cmd"><HighlightedText text={stripTrunc(c.argStr).text} quotes={quotesFor(id)} /></div>
           {/if}
           {#if resultText}
             {@const res = stripTrunc(resultText)}
             {#if res.text.length > 220 && !quoteInText(id, res.text)}
               <details class="disc tres-fold" open={mode === 'full'}>
                 <summary>output · {res.text.split('\n').length} lines{#if res.more} · +{res.more.toLocaleString()} truncated{/if}</summary>
-                <div class="tres"><HighlightedText text={res.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} />{#if res.more}<span class="trunc">⋯ {res.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
+                <div class="tres"><HighlightedText text={res.text} quotes={quotesFor(id)} />{#if res.more}<span class="trunc">⋯ {res.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
               </details>
             {:else}
-              <div class="tres"><HighlightedText text={res.text} quotes={quotesFor(id)} debugQuotes={debugQuotesFor(id)} />{#if res.more}<span class="trunc">⋯ {res.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
+              <div class="tres"><HighlightedText text={res.text} quotes={quotesFor(id)} />{#if res.more}<span class="trunc">⋯ {res.more.toLocaleString()} more chars truncated in source</span>{/if}</div>
             {/if}
           {/if}
         </div>
@@ -747,15 +746,15 @@
             <div class="aud">
               <span class="lbl">auditor · assistant</span>
               {#if ev.reasoning}
-                <div class="reason"><span class="lbl">reasoning</span> <MarkdownText text={ev.reasoning} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} /></div>
+                <div class="reason"><span class="lbl">reasoning</span> <MarkdownText text={ev.reasoning} quotes={quotesFor(ev.id)} /></div>
               {/if}
               {#if ev.content}
-                <MarkdownText text={ev.content} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} />
+                <MarkdownText text={ev.content} quotes={quotesFor(ev.id)} />
               {/if}
               {#if ev.tool_calls?.length}
                 <div class="callrow">
                   {#each ev.tool_calls as call (call.id)}
-                    <div class="call"><span class="fn">{call.function}</span>(<HighlightedText text={callText(call)} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} />)</div>
+                    <div class="call"><span class="fn">{call.function}</span>(<HighlightedText text={callText(call)} quotes={quotesFor(ev.id)} />)</div>
                   {/each}
                 </div>
               {/if}
@@ -793,7 +792,7 @@
                   {:else}
                     <div class="turn-row">
                       <div class="turn-main">{@render targetCard(ev.id, g.t, g.no, g.hls)}</div>
-                      <div class="turn-anns">{#each g.hls.filter((h) => h.notable !== false) as h (h.n)}{@render annBtn(h)}{/each}</div>
+                      <div class="turn-anns">{#each g.hls as h (h.n)}{@render annBtn(h)}{/each}</div>
                     </div>
                   {/if}
                 {/each}
@@ -814,7 +813,7 @@
                     <div class="term"><pre>{ev.content}</pre></div>
                   </details>
                 {:else if ev.content}
-                  <div class="termline mono"><HighlightedText text={ev.content} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} /></div>
+                  <div class="termline mono"><HighlightedText text={ev.content} quotes={quotesFor(ev.id)} /></div>
                 {/if}
               </div>
             </div>
@@ -829,7 +828,7 @@
           <div class="sp">
             <div class="sp-card usermsg">
               <span class="lbl">auditor → target · user message</span>
-              {#if ev.content}<div class="umbody"><MarkdownText text={ev.content} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} /></div>{/if}
+              {#if ev.content}<div class="umbody"><MarkdownText text={ev.content} quotes={quotesFor(ev.id)} /></div>{/if}
             </div>
           </div>
           {#if hls.length}
@@ -841,7 +840,7 @@
           <div class="sp wide">
             <div class="sp-card">
               <span class="lbl">system</span>
-              {#if ev.content}<div class="umbody"><MarkdownText text={ev.content} quotes={quotesFor(ev.id)} debugQuotes={debugQuotesFor(ev.id)} /></div>{/if}
+              {#if ev.content}<div class="umbody"><MarkdownText text={ev.content} quotes={quotesFor(ev.id)} /></div>{/if}
             </div>
           </div>
         {/if}
@@ -854,7 +853,7 @@
   <section class="judge" id="judge">
     <div class="judge-card">
       <h2>Judge report</h2>
-      <span class="lbl muted">{shortModel(transcript.auditor_model)} · {hNotable.length} highlights</span>
+      <span class="lbl muted">{shortModel(transcript.auditor_model)} · {hInline.length} highlights</span>
       <div class="jgrid">
         <div class="scores">
           <div class="scores-cap lbl">notable dimensions · <span class="k-concern">concerning</span> behavior scored high (≥6) · <span class="k-weak">quality</span> scored low (≤4)</div>
@@ -887,7 +886,7 @@
         {@const p = noteParts(h)}
         <li>
           <button class:deb={h.debug} class:quiet onclick={() => jumpTo(h.event_id)}
-                  title={quiet ? 'Cited by the judge but not annotated inline (score too low to flag)' : (h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined)}>
+                  title={quiet ? (h.debug ? 'Debug/quality judge citation: listed here, not annotated inline' : 'Cited by the judge but not annotated inline (score too low to flag)') : (h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined)}>
             <span class="he"><span class="hn">{quiet ? '·' : `H${h.n}`}</span><span class="eid">{h.event_id}</span></span>
             <span class="src">{h.debug ? 'debug' : h.source}</span>
             <span class="hnote">
@@ -897,13 +896,13 @@
           </button>
         </li>
       {/snippet}
-      <div class="hlist-cap lbl">{hNotable.length} highlighted moments — quotes the judge flagged, annotated inline · <span class="hn">scheming</span> · <span class="deb-k">debug/quality</span></div>
+      <div class="hlist-cap lbl">{hInline.length} highlighted moments — scheming-judge quotes flagged and annotated inline</div>
       <ul class="hlist">
-        {#each hNotable as h (h.n)}{@render hlItem(h, false)}{/each}
+        {#each hInline as h (h.n)}{@render hlItem(h, false)}{/each}
       </ul>
       {#if hQuiet.length}
         <details class="quiet-cites">
-          <summary class="lbl">{hQuiet.length} more citations — evidence the judge listed for low scores (nothing to flag), not annotated inline</summary>
+          <summary class="lbl">{hQuiet.length} more citations — <span class="deb-k">debug/quality</span> evidence and low-score scheming evidence (nothing to flag), listed here only</summary>
           <ul class="hlist">
             {#each hQuiet as h (h.n)}{@render hlItem(h, true)}{/each}
           </ul>
