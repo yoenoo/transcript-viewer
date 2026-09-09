@@ -67,10 +67,34 @@
   }
 
   type HL = Highlight & { n: number; debug: boolean; dq: string };
-  const hAll = $derived.by<HL[]>(() =>
-    (transcript?.judge.highlights || []).map((h, i) => ({
-      ...h, n: i + 1, debug: debugHl(h), dq: decodeEntities(h.quoted_text),
-    })));
+  // H-numbers are assigned to inline annotations first (notable !== false), so H1..Hk in the
+  // judge card are exactly the annotations you can find in the transcript. Low-score citations
+  // the judge listed but did not flag (notable: false) are numbered after them and only listed.
+  const hAll = $derived.by<HL[]>(() => {
+    const raw = transcript?.judge.highlights || [];
+    const order = [...raw.filter((h) => h.notable !== false), ...raw.filter((h) => h.notable === false)];
+    return order.map((h, i) => ({ ...h, n: i + 1, debug: debugHl(h), dq: decodeEntities(h.quoted_text) }));
+  });
+  const hNotable = $derived(hAll.filter((h) => h.notable !== false));
+  const hQuiet = $derived(hAll.filter((h) => h.notable === false));
+
+  // The exporter flattens a v3 citation into `dimension 5/10 — interpretation · Alt: ...`;
+  // split it back so the parts can be rendered separately.
+  type NoteParts = { score: string | null; body: string; alt: string | null };
+  function noteParts(h: HL): NoteParts {
+    let s = h.note || '';
+    let score: string | null = null;
+    if (h.dimension && s.startsWith(h.dimension)) {
+      const i = s.indexOf(' — ');
+      const head = i >= 0 ? s.slice(0, i) : s;
+      s = i >= 0 ? s.slice(i + 3) : '';
+      score = head.slice(h.dimension.length).trim() || null;
+    }
+    let alt: string | null = null;
+    const j = s.indexOf(' · Alt: ');
+    if (j >= 0) { alt = s.slice(j + 8); s = s.slice(0, j); }
+    return { score, body: s, alt };
+  }
 
   const highlightsByEvent = $derived.by(() => {
     const m = new Map<string, HL[]>();
@@ -590,7 +614,7 @@
       <h1>{transcript.seed_name || transcript.title} <span class="mono">· {logId}</span></h1>
       <span class="stat">auditor <b>{shortModel(transcript.auditor_model)}</b></span>
       <span class="stat">target <b>{shortModel(transcript.target_model)}</b> · {transcript.scaffold_name}</span>
-      <span class="stat"><b>{transcript.branches.length}</b> branches · <b>{transcript.judge.highlights.length}</b> highlights · <b>{totalToolCalls}</b> tool calls · {fmtDuration(transcript.total_time_s)}{#if usage.totalCost} · ${usage.totalCost.toFixed(2)}{/if}</span>
+      <span class="stat"><b>{transcript.branches.length}</b> branches · <b>{hNotable.length}</b> highlights · <b>{totalToolCalls}</b> tool calls · {fmtDuration(transcript.total_time_s)}{#if usage.totalCost} · ${usage.totalCost.toFixed(2)}{/if}</span>
     </div>
 
     <div class="controls">
@@ -638,9 +662,13 @@
   </header>
 
   {#snippet annBtn(h: HL)}
+    {@const p = noteParts(h)}
     <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}
             title={h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined}>
-      <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>{h.note}
+      <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>
+      {#if h.dimension}<span class="dim">{h.dimension}{#if p.score} <b>{p.score}</b>{/if}</span>{/if}
+      {p.body}
+      {#if p.alt}<span class="alt">Alt: {p.alt}</span>{/if}
     </button>
   {/snippet}
 
@@ -827,7 +855,7 @@
   <section class="judge" id="judge">
     <div class="judge-card">
       <h2>Judge report</h2>
-      <span class="lbl muted">{shortModel(transcript.auditor_model)} · {transcript.judge.highlights.length} highlights</span>
+      <span class="lbl muted">{shortModel(transcript.auditor_model)} · {hNotable.length} highlights</span>
       <div class="jgrid">
         <div class="scores">
           <div class="scores-cap lbl">notable dimensions · <span class="k-concern">concerning</span> behavior scored high (≥6) · <span class="k-weak">quality</span> scored low (≤4)</div>
@@ -856,18 +884,33 @@
           {/each}
         </div>
       </div>
-      <div class="hlist-cap lbl">{hAll.length} highlighted moments — quotes the judge flagged · <span class="hn">scheming</span> · <span class="deb-k">debug/quality</span></div>
+      {#snippet hlItem(h: HL, quiet: boolean)}
+        {@const p = noteParts(h)}
+        <li>
+          <button class:deb={h.debug} class:quiet onclick={() => jumpTo(h.event_id)}
+                  title={quiet ? 'Cited by the judge but not annotated inline (score too low to flag)' : (h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined)}>
+            <span class="he"><span class="hn">{quiet ? '·' : `H${h.n}`}</span><span class="eid">{h.event_id}</span></span>
+            <span class="src">{h.debug ? 'debug' : h.source}</span>
+            <span class="hnote">
+              {#if h.dimension}<span class="dim">{h.dimension}{#if p.score} <b>{p.score}</b>{/if}</span>{/if}
+              {p.body}
+              {#if p.alt}<span class="alt">Alt: {p.alt}</span>{/if}
+            </span>
+          </button>
+        </li>
+      {/snippet}
+      <div class="hlist-cap lbl">{hNotable.length} highlighted moments — quotes the judge flagged, annotated inline · <span class="hn">scheming</span> · <span class="deb-k">debug/quality</span></div>
       <ul class="hlist">
-        {#each hAll as h (h.n)}
-          <li>
-            <button class:deb={h.debug} onclick={() => jumpTo(h.event_id)}>
-              <span class="he"><span class="hn">H{h.n}</span><span class="eid">{h.event_id}</span></span>
-              <span class="src">{h.debug ? 'debug' : h.source}</span>
-              <span class="hnote">{h.note}</span>
-            </button>
-          </li>
-        {/each}
+        {#each hNotable as h (h.n)}{@render hlItem(h, false)}{/each}
       </ul>
+      {#if hQuiet.length}
+        <details class="quiet-cites">
+          <summary class="lbl">{hQuiet.length} more citations — evidence the judge listed for low scores (nothing to flag), not annotated inline</summary>
+          <ul class="hlist">
+            {#each hQuiet as h (h.n)}{@render hlItem(h, true)}{/each}
+          </ul>
+        </details>
+      {/if}
       {#if usage.rows.length}
         <div class="usage">
           {#each usage.rows as r (r.role)}
@@ -1124,6 +1167,9 @@
   .ann:hover { background: var(--surface-alt); }
   .ann .lbl { color: var(--hl-ink); display: block; margin-bottom: 2px; }
   .ann .hn { margin-right: 5px; }
+  .ann .dim, .hlist .dim { display: inline-block; font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border); padding: 0 5px; margin: 0 4px 2px 0; vertical-align: 1px; }
+  .ann .dim b, .hlist .dim b { color: var(--text); font-weight: 600; }
+  .ann .alt, .hlist .alt { display: block; margin-top: 3px; font-size: 11.5px; color: var(--text-faint); font-style: italic; }
   .ann.debug { border-left-color: var(--railc); color: var(--text-muted); }
   .ann.debug .lbl { color: var(--text-muted); }
   .ml .ann { text-align: right; border-left: 0; border-right: 3px solid var(--hl); }
@@ -1184,6 +1230,12 @@
   .hlist .src { font-family: var(--mono); font-size: 10px; color: var(--hl-ink); text-transform: uppercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; }
   .hlist button.deb .src { color: var(--text-faint); }
   .hlist .hnote { color: var(--text-muted); }
+  .hlist button.quiet { opacity: 0.75; }
+  .hlist button.quiet:not(.deb) { border-left-color: var(--border-strong); }
+  .hlist button.quiet .hn { color: var(--text-faint); }
+  .quiet-cites { margin-top: 12px; }
+  .quiet-cites summary { cursor: pointer; color: var(--text-faint); font-size: 10.5px; text-transform: none; letter-spacing: 0; }
+  .quiet-cites summary:hover { color: var(--text-muted); }
   .usage { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
   /* ---- comparison ---- */
