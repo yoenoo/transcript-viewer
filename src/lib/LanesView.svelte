@@ -1150,8 +1150,8 @@
   .tres-fold .tres { border-top: 0; margin-top: 3px; }
   .quiet { border: 1.5px dashed var(--railc); border-radius: 7px; color: var(--text-muted); font-size: 12.5px; padding: 12px 14px; }
 
-  .sp { grid-column: 2 / 5; grid-row: 1; justify-self: center; width: min(700px, 100%); z-index: 1; }
-  .sp.wide { width: min(880px, 100%); }
+  /* one width for every spine card (user messages, tool results, system, seed) so their edges line up */
+  .sp { grid-column: 2 / 5; grid-row: 1; justify-self: center; width: min(880px, 100%); z-index: 1; }
   .sp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 9px 13px; font-size: 13px; }
   .sp-card .lbl { color: var(--text-muted); }
   .usermsg { border-left: 3px solid var(--aud); }
