@@ -83,7 +83,7 @@
   // The exporter flattens a v3 citation into `dimension 5/10 — interpretation`; split it back
   // so the parts can be rendered separately. Older exports appended ` · Alt: <competing
   // reading>`; that field was dropped from the judge and is stripped here, not shown.
-  type NoteParts = { score: string | null; body: string };
+  type NoteParts = { score: string | null; body: string };  // score: "5" or "1 · not exercised"
   function noteParts(h: HL): NoteParts {
     let s = h.note || '';
     let score: string | null = null;
@@ -91,7 +91,9 @@
       const i = s.indexOf(' — ');
       const head = i >= 0 ? s.slice(0, i) : s;
       s = i >= 0 ? s.slice(i + 3) : '';
-      score = head.slice(h.dimension.length).trim() || null;
+      const rest = head.slice(h.dimension.length).trim();  // "5/10" or "1/10 (not exercised)"
+      const sm = rest.match(/^(\d+)\s*\/\s*10\s*(?:\(([^)]*)\))?$/);
+      score = sm ? (sm[2] ? `${sm[1]} · ${sm[2]}` : sm[1]) : (rest || null);
     }
     const j = s.indexOf(' · Alt: ');
     if (j >= 0) s = s.slice(0, j);
@@ -285,6 +287,9 @@
   // parse is a lossy legacy fallback (it drops reasoning-only and text-only
   // turns), used only for old transcripts that lack target_activity.
   type NCall = { fn: string; args: Record<string, unknown> | null; argStr: string; result: string };
+  // Display names for scaffold tools: Petri's shell tool is literally named "computer".
+  const FN_DISPLAY: Record<string, string> = { computer: 'bash' };
+  const fnDisplay = (fn: string) => FN_DISPLAY[fn] ?? (fn || 'call');
   type NTurn = { no: string; reasoning: string; text: string; calls: NCall[] };
 
   function buildTurns(ev: Event): NTurn[] {
@@ -679,7 +684,7 @@
     <button class="ann" class:debug={h.debug} onclick={() => jumpTo(h.event_id)}
             title={h.record_id ? `${h.record_id} · ${h.channel ?? ''}` : undefined}>
       <span class="lbl"><span class="hn">H{h.n}</span> {h.debug ? 'debug' : h.source}</span>
-      {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">{p.score.replace('/', ' / ')}</span>{/if}</span>{/if}
+      {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">({p.score})</span>{/if}</span>{/if}
       {p.body}
     </button>
   {/snippet}
@@ -693,7 +698,7 @@
         {@const args = c.args}
         {@const resultText = cleanResult(c.result)}
         <div class="tcall">
-          <div class="tcall-fn"><span class="fn">{c.fn || 'call'}</span></div>
+          <div class="tcall-fn"><span class="fn">{fnDisplay(c.fn)}</span></div>
           {#if args && typeof args.command === 'string'}
             {@const cq = cmdQuotes(id)}
             {@const cmd = stripTrunc(args.command)}
@@ -904,7 +909,7 @@
             <span class="he"><span class="hn">{quiet ? '·' : `H${h.n}`}</span><span class="eid">{h.event_id}</span></span>
             <span class="src">{h.debug ? 'debug' : h.source}</span>
             <span class="hnote">
-              {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">{p.score.replace('/', ' / ')}</span>{/if}</span>{/if}
+              {#if h.dimension}<span class="dim"><span class="dname">{h.dimension}</span>{#if p.score}<span class="dsc">({p.score})</span>{/if}</span>{/if}
               {p.body}
             </span>
           </button>
@@ -1181,7 +1186,7 @@
   /* citation label row: dimension name, thin divider, score */
   .ann .dim, .hlist .dim { display: flex; align-items: baseline; gap: 0; margin: 0 0 3px; font-size: 11px; line-height: 1.3; }
   .ann .dname, .hlist .dname { font-family: var(--mono); color: var(--text-muted); letter-spacing: 0.01em; }
-  .ann .dsc, .hlist .dsc { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border-strong); color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ann .dsc, .hlist .dsc { margin-left: 5px; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ml .ann .dim { justify-content: flex-end; }
   .ann.debug { border-left-color: var(--railc); color: var(--text-muted); }
   .ann.debug .lbl { color: var(--text-muted); }
