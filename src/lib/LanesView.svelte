@@ -470,11 +470,11 @@
   });
 
   // ---- granular timeline (segments cut at branch changes + target replies) ---
-  type Seg = { label: string; branch: number; anchorId: string; count: number; hl: number; flagged: boolean };
+  type Seg = { label: string; branch: number; anchorId: string; count: number; hl: number; flagged: boolean; hls: HL[] };
   const timeline = $derived.by<Seg[]>(() => {
     if (!transcript) return [];
     const evs = transcript.events.filter((e) => !isSeedDelivery(e));
-    type Raw = { branch: number; anchorId: string; count: number; hasTarget: boolean; title: string; hasEnd: boolean; hl: number; flagged: boolean };
+    type Raw = { branch: number; anchorId: string; count: number; hasTarget: boolean; title: string; hasEnd: boolean; hl: number; flagged: boolean; hls: HL[] };
     const raw: Raw[] = [];
     let bucket: Event[] = [];
     const flush = () => {
@@ -485,7 +485,7 @@
         branch: bucket[0].branch, anchorId: (target || bucket[0]).id, count: bucket.length,
         hasTarget: !!target, title: target ? topicTitle(target.content) : '',
         hasEnd: bucket.some((e) => e.role === 'tool' && (e as ToolEvent).tool_name === 'end_audit'),
-        hl: hls.length, flagged: hls.some((h) => !debugHl(h)),
+        hl: hls.length, flagged: hls.some((h) => !debugHl(h)), hls,
       });
       bucket = [];
     };
@@ -504,9 +504,31 @@
       else if (firstOfBranch) label = r.branch > 1 ? 'rollback & setup' : 'setup';
       else if (r.hasEnd || lastOfBranch) label = 'verify & close';
       else label = 'auditor actions';
-      return { label, branch: r.branch, anchorId: r.anchorId, count: r.count, hl: r.hl, flagged: r.flagged };
+      return { label, branch: r.branch, anchorId: r.anchorId, count: r.count, hl: r.hl, flagged: r.flagged, hls: r.hls };
     });
   });
+
+  // Card description for a flagged beat: its dimensions (worst score each, most severe first)
+  // and the interpretation of its most severe citation.
+  function beatDims(hls: HL[]): { name: string; score: number }[] {
+    const best = new Map<string, number>();
+    for (const h of hls) {
+      if (!h.dimension) continue;
+      const sc = typeof h.score === 'number' ? h.score : 0;
+      const sev = POSITIVE_SCHEMING.has(h.dimension) ? 10 - sc : sc;
+      best.set(h.dimension, Math.max(best.get(h.dimension) ?? 0, sev));
+    }
+    return [...best.entries()].map(([name, sev]) => ({ name, score: POSITIVE_SCHEMING.has(name) ? 10 - sev : sev }))
+      .sort((a, b) => (POSITIVE_SCHEMING.has(b.name) ? 10 - b.score : b.score) - (POSITIVE_SCHEMING.has(a.name) ? 10 - a.score : a.score));
+  }
+  function beatBlurb(hls: HL[]): string {
+    const top = [...hls].sort((a, b) => {
+      const sa = typeof a.score === 'number' ? (POSITIVE_SCHEMING.has(a.dimension || '') ? 10 - a.score : a.score) : 0;
+      const sb = typeof b.score === 'number' ? (POSITIVE_SCHEMING.has(b.dimension || '') ? 10 - b.score : b.score) : 0;
+      return sb - sa;
+    })[0];
+    return top ? noteParts(top).body : '';
+  }
 
   // Horizontal position (%) of each branch boundary, on the timeband's event-count
   // basis, so a single divider can span the silhouette and the band aligned.
@@ -672,9 +694,11 @@
       <!-- only the beats the scheming judge flagged; the overview bars above still cover every event -->
       <nav class="timeband" aria-label="Flagged moments">
         {#each flaggedBeats as seg (seg.anchorId)}
+          {@const dims = beatDims(seg.hls)}
           <button type="button" class="flag" onclick={() => jumpTo(seg.anchorId)} title={seg.label}>
-            <span class="segnm">{seg.label}</span>
-            <span class="segmeta">B{seg.branch} · {seg.hl} hl</span>
+            <span class="segtop"><span class="segnm">{seg.label}</span><span class="segmeta">B{seg.branch} · {seg.hl} hl</span></span>
+            <span class="segdims">{#each dims.slice(0, 3) as d (d.name)}<span class="segdim">{d.name} ({d.score})</span>{/each}{#if dims.length > 3}<span class="segdim more">+{dims.length - 3} more</span>{/if}</span>
+            <span class="segblurb">{beatBlurb(seg.hls)}</span>
           </button>
         {/each}
       </nav>
@@ -1089,12 +1113,17 @@
   .ovcols i.hl { box-shadow: inset 0 -3px 0 var(--hl); }
 
   .timeband { display: flex; gap: 2px; max-width: 1480px; margin: 5px auto 0; }
-  .timeband button { flex: 1 1 0; min-width: 0; max-width: 260px; text-align: left; cursor: pointer; appearance: none; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--railc); padding: 5px 9px 6px; font: inherit; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; }
+  .timeband button { flex: 1 1 0; min-width: 0; text-align: left; cursor: pointer; appearance: none; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--railc); padding: 5px 9px 6px; font: inherit; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; }
   .timeband button:hover { border-color: var(--text); }
   .timeband button.flag { border-top-color: var(--hl); }
   .timeband .segnm { font-size: 10.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
   .timeband button.flag .segnm { color: var(--hl-ink); }
-  .timeband .segmeta { font-size: 9.5px; font-family: var(--mono); letter-spacing: 0.03em; }
+  .timeband .segmeta { font-size: 9.5px; font-family: var(--mono); letter-spacing: 0.03em; white-space: nowrap; }
+  .timeband .segtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+  .timeband .segdims { display: flex; flex-wrap: wrap; gap: 3px 6px; margin-top: 3px; min-width: 0; }
+  .timeband .segdim { font-family: var(--mono); font-size: 9.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+  .timeband .segdim.more { color: var(--text-faint); }
+  .timeband .segblurb { font-size: 11px; line-height: 1.35; color: var(--text); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .jlink { appearance: none; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
   .jlink:hover { color: var(--text); }
   .turnfold { margin: 2px 0; border: 1.5px dashed var(--railc); border-radius: 7px; background: var(--bg); }
