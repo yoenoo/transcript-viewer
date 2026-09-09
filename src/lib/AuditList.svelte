@@ -189,7 +189,7 @@
       Loupe · Audits
     </div>
     <h1>Audit transcripts</h1>
-    <p class="lede">{collectionEntries.length} audits across {groups.length} seeds · {totalConcerning} with concerning behavior (misalignment ≥&nbsp;6).<br>Grouped by scenario — open a seed to see its runs, or a run to read the transcript.</p>
+    <p class="lede">{collectionEntries.length} audits across {groups.length} seeds · {totalConcerning} with concerning behavior (misalignment ≥&nbsp;7).<br>Grouped by scenario — open a seed to see its runs, or a run to read the transcript.</p>
   </header>
 
   {#if collections.length > 1}

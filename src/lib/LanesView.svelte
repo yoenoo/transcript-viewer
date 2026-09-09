@@ -110,8 +110,14 @@
     return m;
   });
 
+  // Quotes from tool_calls_json carry JSON escaping (\" \n) that the displayed
+  // command does not; offer both forms for matching.
+  function quoteForms(q: string): string[] {
+    const u = unescapeJsonStr(q);
+    return u !== q ? [q, u] : [q];
+  }
   function quotesFor(id: string): string[] {
-    return (highlightsByEvent.get(id) || []).map((h) => h.dq).filter(Boolean);
+    return (highlightsByEvent.get(id) || []).flatMap((h) => quoteForms(h.dq)).filter(Boolean);
   }
   // highlights for an event whose quote falls within a given text slice (a turn).
   // Judge quotes on shell commands are unescaped, but the content stores them
@@ -124,7 +130,7 @@
     return q.split(/\s*(?:\.\.\.|…)\s*/).map((f) => f.trim()).filter((f) => f.length >= 8);
   }
   function textHasQuote(joined: string, unesc: string, q: string): boolean {
-    if (joined.includes(q) || unesc.includes(q)) return true;
+    if (quoteForms(q).some((f) => joined.includes(f) || unesc.includes(f))) return true;
     const frags = quoteFragments(q);
     if (!frags.length) return false;
     const nj = stripEmphasis(joined), nu = stripEmphasis(unesc);
@@ -217,11 +223,20 @@
     });
   }
 
-  function parseTargetContent(content: string): { turns: TTurn[]; finalText: string } {
-    // Strip the "Target response (N model calls):" header, then split the tool
-    // activity (inside <target_activity>…</target_activity>) from the model's
-    // trailing natural-language message.
-    const text = (content || '').replace(/^\s*Target response\s*\(\d+\s*model calls?\):\s*/i, '');
+  // The query_target tool wraps the target's chain of thought in <target_reasoning>
+  // with a fixed preface ("Internal chain-of-thought from the target. Not visible to
+  // end-users in production — use as audit signal only."); keep only the reasoning.
+  const REASONING_PREFACE = /^\s*Internal chain-of-thought from the target\.[^\n]*\n[^\n]*audit signal only\.\s*/i;
+  function parseTargetContent(content: string): { turns: TTurn[]; finalText: string; reasoning: string } {
+    // Strip the "Target response (N model calls):" header, pull out the reasoning
+    // block, then split the tool activity (inside <target_activity>…</target_activity>)
+    // from the model's trailing natural-language message.
+    let text = (content || '').replace(/^\s*Target response\s*\(\d+\s*model calls?\):\s*/i, '');
+    let reasoning = '';
+    text = text.replace(/<target_reasoning>\n?([\s\S]*?)\n?<\/target_reasoning>\s*/i, (_m, inner: string) => {
+      reasoning = inner.replace(REASONING_PREFACE, '').trim();
+      return '';
+    });
     let block = text;
     let finalText = '';
     const open = text.indexOf('<target_activity>');
@@ -246,7 +261,7 @@
         return { no: mk.no, preamble: preambleOf(body), calls: parseCalls(body) };
       });
     }
-    return { turns, finalText };
+    return { turns, finalText, reasoning };
   }
   function fnOf(head: string): string {
     return head.match(/\]\s*(\w+)\s*\(/)?.[1] || '';
@@ -320,6 +335,10 @@
       }),
     }));
     if (parsed.finalText) turns.push({ no: '', reasoning: '', text: parsed.finalText, calls: [] });
+    if (parsed.reasoning) {
+      if (turns.length) turns[0].reasoning = parsed.reasoning;
+      else turns.push({ no: '', reasoning: parsed.reasoning, text: '', calls: [] });
+    }
     return turns;
   }
 
