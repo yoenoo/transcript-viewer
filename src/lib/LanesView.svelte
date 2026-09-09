@@ -942,7 +942,7 @@
   </section>
 
   <!-- branch comparison -->
-  {#if branchStats.length > 1}
+  {#if branchStats.length > 1 && branchStats.some((bs) => bs.highlights.length)}
     <section class="compare" id="compare">
       <div class="compare-card">
         <h2>Branch comparison</h2>
